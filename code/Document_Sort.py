@@ -21,6 +21,15 @@ def Standard():
     return timeStamp
 
 
+# 根据时间戳返回周几
+# Input:timestamp type:int
+# Output:周几（周一0、周二1……）
+def week_day(timestamp):
+    ltime = time.localtime(timestamp)
+    dateymd = time.strftime("%Y-%m-%d", ltime)
+    return datetime.strptime(dateymd, "%Y-%m-%d").weekday()
+
+
 # 计算方差
 # Input:day7从今天起前7天的历史记录、day14从今天七前7到14天的历史记录 type:二维list
 # Output:sigma type:float
@@ -41,18 +50,12 @@ def Periodicity(week1, week2):
     w1 = [[], [], [], [], [], [], []]
     length1 = len(week1)
     for i in range(length1):
-        ltime = time.localtime(week1[i][1])
-        dateymd = time.strftime("%Y-%m-%d", ltime)
-        w1[datetime.strptime(dateymd, "%Y-%m-%d").weekday()
-           ].append(week1[i][0])
+        w1[week_day(week1[i][1])].append(week1[i][0])
 
     w2 = [[], [], [], [], [], [], []]
     length2 = len(week2)
     for i in range(length2):
-        ltime = time.localtime(week2[i][1])
-        dateymd = time.strftime("%Y-%m-%d", ltime)
-        w2[datetime.strptime(dateymd, "%Y-%m-%d").weekday()
-           ].append(week2[i][0])
+        w2[week_day(week2[i][1])].append(week2[i][0])
 
     # 以周为单位的周期性
     J1 = 0
@@ -93,16 +96,19 @@ def Relation(schedule):
 # 排序算法的核心实现
 # Input:history 一个月内文档的打开记录，假定读入时就已经框定一个月的范围！！！ type:[['文档','时间戳']]
 #       schedule 未来一个月内的日程，假定读入时就已经框定一个月的范围！！！ type:[['日程','时间戳']]
-#       sigma 计算得到的方差 type:float
-#       periodicity 计算得到是否具有周期性 type:int
 #       store 预存的计算结果，如果其不为空则默认已经计算得到了之前一个月的结果，且history仅包含当天文档的打开记录！！！ type:[['文档','概率']]
 #       now 指定排序的时刻，默认为当前时刻 type:int
 # Output:文档的先后顺序 type:[('文档',概率值)]
-def Document_Sort(history, schedule, sigma=9, periodicity=0, store=[], now=int(time.time())):
+def Document_Sort(history, schedule, store=[], now=int(time.time())):
     standard = Standard()
     # print(sigma)
     # 使用字典存储结果
     arr = {}
+
+    week1, week2 = week(history, now=1589846400)
+    day7, day14 = day(history, now=1589846400)
+    sigma = Sigma(day7, day14)
+    periodicity = Periodicity(week1, week2)
 
     # 判断之前是否有预存计算结果
     if store != []:
@@ -133,13 +139,77 @@ def Document_Sort(history, schedule, sigma=9, periodicity=0, store=[], now=int(t
                 arr[j] += prob
             else:
                 arr[j] = prob
+
+    # 有以周为单位的周期性
+    if periodicity == 7:
+        length_week1 = len(week1)
+        for i in range(length_week1):
+            # prob = stats.norm.pdf(x, mu, sigma)
+            prob = stats.norm.pdf((now - standard)/(24*60*60),
+                                  (week1[i][1] - standard + (7*24*60*60))/(24*60*60), sigma)  # 加上一周后的先验
+            # 该文档必然已经在历史记录中出现
+            arr[week1[i][0]] += prob
+
+    # 以工作日为单位的周期性
+    if periodicity == 5:
+        length_week1 = len(week1)
+        for i in range(length_week1):
+            if week_day(week1[i][1]) < 5:  # 01234为工作日
+                # prob = stats.norm.pdf(x, mu, sigma)
+                prob = stats.norm.pdf((now - standard)/(24*60*60),
+                                      (week1[i][1] - standard + (7*24*60*60))/(24*60*60), sigma)  # 加上一周后的先验
+                # 该文档必然已经在历史记录中出现
+                arr[week1[i][0]] += prob
+
     # print(sorted(arr.items(), key=lambda x: x[1], reverse=True))
     return sorted(arr.items(), key=lambda x: x[1], reverse=True)
 
 
 # 就是调用一下Document_Sort()定期计算一下结果，可按需要进行转换后存入数据库
-def Store(history, schedule, sigma=9, periodicity=0, now=int(time.time())):
-    return Document_Sort(history, schedule, sigma, periodicity, now=now)
+def Store(history, schedule, store=[], now=int(time.time())):
+    return Document_Sort(history, schedule, store=store, now=now)
+
+
+# 通过当前时间和文档打开记录得到上周和上上周的文档打开记录
+# Input:1.history 一个月内文档的打开记录，假定读入时就已经框定一个月的范围！！！ type:[['文档','时间戳']]
+#       2. now 指定排序的时刻，默认为当前时刻 type:int
+# Output:week1（上周的文档打开历史记录）、week2（上上周的文档打开历史记录） type:[['文档','时间戳']]
+def week(history, now=int(time.time())):
+    week1 = []
+    week2 = []
+    week_start = int((now - 316800) / (7*24*3600)) * (7*24*3600) + 316800
+    lastweek_start = week_start - 7*24*3600
+    lastlastweek_start = lastweek_start - 7*24*3600
+
+    length = len(history)
+    for i in range(length):
+        # 上周的时间范围
+        if history[i][1] > lastweek_start and history[i][1] <= week_start:
+            week1.append(history[i])
+        # 上上周的时间范围
+        if history[i][1] > lastlastweek_start and history[i][1] <= lastweek_start:
+            week2.append(history[i])
+    return week1, week2
+
+
+# 通过当前时间和文档打开记录得到过去7天和过去7-14天的文档打开记录
+# Input:同week()函数
+# Output:day7（过去7天的文档打开记录）、day14（过去7-14天的文档打开记录） type:[['文档','时间戳']]
+def day(history, now=int(time.time())):
+    day7 = []
+    day14 = []
+    day7_start = now - 24*7*3600
+    day14_start = day7_start - 24*7*3600
+
+    length = len(history)
+    for i in range(length):
+        # day7的时间范围
+        if history[i][1] > day7_start and history[i][1] <= now:
+            day7.append(history[i])
+        # day14的时间范围
+        if history[i][1] > day14_start and history[i][1] <= day7_start:
+            day14.append(history[i])
+    return day7, day14
 
 
 if __name__ == "__main__":
@@ -159,28 +229,35 @@ if __name__ == "__main__":
     7. 2020年5月14日12:59 1589432340 线性代数
     4. 2020年5月15日10:04 1589508240 概率论
     '''
-    # 上周的记录
-    week1 = [['高等数学', 1589328120], ['高等数学', 1589338020],
-             ['线性代数', 1589432340], ['概率论', 1589508240]]
-    # 上上周的记录
-    week2 = [['高等数学', 1588724520], ['高等数学', 1588728180],
-             ['线性代数', 1588831260], ['概率论', 1588903380]]
-    # 从今天起前7天的历史记录
-    day7 = [['高等数学', 1589328120], ['高等数学', 1589338020],
-            ['线性代数', 1589432340], ['概率论', 1589508240]]
-    # 从今天七前7到14天的历史记录
-    day14 = [['高等数学', 1588724520], ['高等数学', 1588728180],
-             ['线性代数', 1588831260], ['概率论', 1588903380]]
+    # # 上周的记录
+    # week1 = [['高等数学', 1589328120], ['高等数学', 1589338020],
+    #          ['线性代数', 1589432340], ['概率论', 1589508240]]
+    # # 上上周的记录
+    # week2 = [['高等数学', 1588724520], ['高等数学', 1588728180],
+    #          ['线性代数', 1588831260], ['概率论', 1588903380]]
+    # # 从今天起前7天的历史记录
+    # day7 = [['高等数学', 1589328120], ['高等数学', 1589338020],
+    #         ['线性代数', 1589432340], ['概率论', 1589508240]]
+    # # 从今天七前7到14天的历史记录
+    # day14 = [['高等数学', 1588724520], ['高等数学', 1588728180],
+    #          ['线性代数', 1588831260], ['概率论', 1588903380]]
     # 这边情况特殊恰好是一样的，实际如需避免多次访问数据库可用week1替代day7，week2替代day14，效果差别应该不大
-    sigma = Sigma(day7, day14)
-    periodicity = Periodicity(week1, week2)
+
     history = [['高等数学', 1589328120], ['高等数学', 1589338020],
                ['线性代数', 1589432340], ['概率论', 1589508240],
                ['高等数学', 1588724520], ['高等数学', 1588728180],
                ['线性代数', 1588831260], ['概率论', 1588903380]]
     schedule = [['高数考试', 1589853600], ['线代考试', 1589950800]]
     # history和schedule假定读入时就已经框定一个月的范围！！！
-    k = Document_Sort(history, schedule, sigma, periodicity, now=1589846400)
+
+    # week1, week2 = week(history, now=1589846400)
+    # day7, day14 = day(history, now=1589846400)
+    # print(week1, week2)
+    # print(day7, day14)
+    # sigma = Sigma(day7, day14)
+    # periodicity = Periodicity(week1, week2)
+
+    k = Document_Sort(history, schedule, now=1589846400)
     print(k)
     result = []
     for i in k:

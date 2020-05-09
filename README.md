@@ -11,3 +11,13 @@
 5. 增量式更新，减小计算时的时间复杂度
 
 代码使用python实现，在code文件夹中，文档在doc文件夹中。
+
+代码核心部分为Document_Sort(history, schedule, store=[], now=int(time.time()))，包含四个参数：
+
+1. history：一个月内文档的打开记录， type:[['文档','时间戳']]
+2. schedule：未来一个月内的日程， type:[['日程','时间戳']]
+3. store 预存的计算结果，如果其不为空则默认已经计算得到了之前一个月的结果，且history仅包含当天文档的打开记录， type:[['文档','概率']]
+4. now：指定排序的时刻，默认为当前时刻，type:int
+
+其中history和schedule从数据库中读入时就已经是最近一个月的数据，history上一个月的文档打开记录，schedule为下一个月的日程信息。
+
